@@ -60,50 +60,61 @@ function App() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !user) return;
+  if (!input.trim() || !user) return;
 
-    setLoading(true);
+  setLoading(true);
 
-    try {
-      // 1️⃣ Save user message to Firestore
-      const userMsg: ChatMessage = {
-        text: input,
-        type: "user",
-        createdAt: Timestamp.now(),
-        userName: user.displayName || "Anonymous",
-      };
+  try {
+    // 1️⃣ Save user message to Firestore
+    const userMsg: ChatMessage = {
+      text: input,
+      type: "user",
+      createdAt: Timestamp.now(),
+      userName: user.displayName || "Anonymous",
+    };
+    await addDoc(collection(db, "chats"), userMsg);
 
-      await addDoc(collection(db, "chats"), userMsg);
+    const queryText = input;
+    setInput("");
 
-      // 2️⃣ Clear input after sending
-      const queryText = input;
-      setInput("");
+    // 2️⃣ Send message to backend
+    const response = await fetch(`${import.meta.env.VITE_BKEND}/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: queryText }),
+    });
 
-      // 3️⃣ Send message to backend
-      const response = await fetch(`${import.meta.env.VITE_BKEND}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: queryText }),
-      });
+    const data = await response.json();
 
-      const data = await response.json();
+    // ✅ Match backend's JSON { response: "<string>" }
+    const botReply =
+      typeof data.response === "string"
+        ? data.response
+        : "⚠️ No response received from AI server.";
 
-      // 4️⃣ Save bot reply to Firestore (no manual setMessages)
-      const botMsg: ChatMessage = {
-        text: data.response,
-        type: "bot",
-        createdAt: Timestamp.now(),
-        userName: "Bot",
-      };
+    // 3️⃣ Save bot reply to Firestore
+    const botMsg: ChatMessage = {
+      text: botReply,
+      type: "bot",
+      createdAt: Timestamp.now(),
+      userName: "Bot",
+    };
+    await addDoc(collection(db, "chats"), botMsg);
+  } catch (err) {
+    console.error(err);
 
-      await addDoc(collection(db, "chats"), botMsg);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-      scrollToBottom();
-    }
-  };
+    // Add fallback message if backend fails
+    await addDoc(collection(db, "chats"), {
+      text: "⚠️ Error: Unable to reach AI server.",
+      type: "bot",
+      createdAt: Timestamp.now(),
+      userName: "Bot",
+    });
+  } finally {
+    setLoading(false);
+    scrollToBottom();
+  }
+};
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") sendMessage();
