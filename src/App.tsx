@@ -1,10 +1,46 @@
 import React, { useState, useEffect, useRef } from "react";
-import { auth, provider, db, signInWithPopup, signOut} from "./firebase";
+// Import Firebase services from the npm packages
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut,
+  onAuthStateChanged
+} from "firebase/auth";
 import type { User } from "firebase/auth";
-import { collection, addDoc, query, orderBy, onSnapshot, Timestamp } from "firebase/firestore";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  Timestamp 
+} from "firebase/firestore";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaPaperPlane, FaGoogle, FaSignOutAlt } from "react-icons/fa";
-import "./index.css";
+// Import icons from lucide-react
+import { Send, LogOut } from "lucide-react";
+
+// --- Firebase Configuration ---
+// This assumes you have these variables in your .env file
+// (e.g., VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, etc.)
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+// --- End Firebase Configuration ---
+
 
 interface ChatMessage {
   id?: string;
@@ -30,12 +66,14 @@ function App() {
   }, [messages, loading]);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(setUser);
+    // Use the onAuthStateChanged from the imported auth module
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
     if (!user) return;
+
     const q = query(collection(db, "chats"), orderBy("createdAt"));
     const unsubscribe = onSnapshot(q, snapshot => {
       const msgs: ChatMessage[] = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as ChatMessage) }));
@@ -46,6 +84,7 @@ function App() {
 
   const handleLogin = async () => {
     try {
+      // Use the imported signInWithPopup, auth, and provider
       await signInWithPopup(auth, provider);
     } catch (err) {
       console.error(err);
@@ -53,46 +92,58 @@ function App() {
   };
 
   const handleLogout = async () => {
+    // Use the imported signOut and auth
     await signOut(auth);
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !user) return;
+    const currentInput = input.trim();
+    if (!currentInput || !user) return;
 
     const userMsg: ChatMessage = {
-      text: input,
+      text: currentInput,
       type: "user",
       createdAt: Timestamp.now(),
       userName: user.displayName || "Anonymous",
     };
 
-    setMessages(prev => [...prev, userMsg]);
     setInput("");
     setLoading(true);
 
     try {
+      await addDoc(collection(db, "chats"), userMsg);
+
       const response = await fetch(`${import.meta.env.VITE_BKEND}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: input }),
+        body: JSON.stringify({ query: currentInput }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "An unknown error occurred.");
+      }
+
       const data = await response.json();
 
       const botMsg: ChatMessage = {
-        text: data.response,
+        text: data.response || "I'm sorry, I couldn't process that.",
         type: "bot",
         createdAt: Timestamp.now(),
         userName: "Bot",
       };
 
-      setMessages(prev => [...prev, botMsg]);
+      await addDoc(collection(db, "chats"), botMsg);
 
-      // Save both messages to Firestore
-      for (const msg of [userMsg, botMsg]) {
-        await addDoc(collection(db, "chats"), msg);
-      }
     } catch (err) {
-      console.error(err);
+      console.error("Error sending message:", err);
+      const errorMsg: ChatMessage = {
+        text: `Error: ${err.message}`,
+        type: "bot",
+        createdAt: Timestamp.now(),
+        userName: "Bot",
+      };
+      await addDoc(collection(db, "chats"), errorMsg);
     } finally {
       setLoading(false);
       scrollToBottom();
@@ -104,33 +155,45 @@ function App() {
   };
 
   return (
-    <div className="container py-5">
+    // Replaced Bootstrap with Tailwind classes
+    <div className="container mx-auto py-5 px-4 h-screen flex items-center justify-center font-sans">
       {!user ? (
-        <div className="text-center login-screen">
-          <h2>Shadow Fight AI Agent By Fate</h2>
-          <button className="btn btn-outline-primary mt-3" onClick={handleLogin}>
+        <div className="text-center p-8 bg-white rounded-lg shadow-xl">
+          <h2 className="text-2xl font-bold mb-4">Shadow Fight AI Agent By Fate</h2>
+          <button 
+            className="flex items-center justify-center gap-2 border border-blue-500 text-blue-500 px-4 py-2 rounded-lg mt-3 hover:bg-blue-50 transition-colors"
+            onClick={handleLogin}
+          >
             <FaGoogle /> Sign in with Google
           </button>
         </div>
       ) : (
-        <div className="card shadow-lg chat-card">
-          <div className="card-header d-flex justify-content-between align-items-center">
-            <h4>Agent by Fate</h4>
-            <button className="btn btn-outline-danger btn-sm" onClick={handleLogout}>
-              <FaSignOutAlt /> Logout
+        <div className="bg-white shadow-xl rounded-lg max-w-2xl w-full h-[80vh] flex flex-col">
+          <div className="p-4 border-b flex justify-between items-center">
+            <h4 className="text-xl font-semibold">Agent by Fate</h4>
+            <button 
+              className="flex items-center gap-2 border border-red-500 text-red-500 px-3 py-1 rounded-md text-sm hover:bg-red-50 transition-colors"
+              onClick={handleLogout}
+            >
+              <LogOut size={16} /> Logout
             </button>
           </div>
-          <div className="card-body chat-body">
+          <div className="p-4 flex-1 h-full overflow-y-auto flex flex-col space-y-4">
             <AnimatePresence initial={false}>
               {messages.map((msg) => (
                 <motion.div
-                  key={msg.id || Math.random()}
+                  key={msg.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 20 }}
                   transition={{ duration: 0.3 }}
-                  className={`chat-bubble ${msg.type}`}
+                  className={`p-3 rounded-lg max-w-[75%] ${
+                    msg.type === 'user'
+                      ? 'bg-blue-500 text-white self-end'
+                      : 'bg-gray-200 text-gray-800 self-start'
+                  }`}
                 >
+                  {/* This still needs a Markdown renderer for full formatting */}
                   {msg.text.split("\n").map((line, idx) => (
                     <p key={idx}>{line}</p>
                   ))}
@@ -138,7 +201,7 @@ function App() {
               ))}
               {loading && (
                 <motion.div
-                  className="chat-bubble bot typing"
+                  className="p-3 rounded-lg bg-gray-200 text-gray-800 self-start italic"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -149,30 +212,28 @@ function App() {
             </AnimatePresence>
             <div ref={messagesEndRef} />
           </div>
-          <div className="card-footer input-group input-bubble-bg">
+          <div className="p-4 border-t flex items-center gap-2 bg-gray-50 rounded-b-lg">
             <input
               type="text"
-              className="form-control"
+              className="flex-1 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Ask about any Shadow Fight character..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              disabled={loading}
             />
-            <button className="btn btn-primary" onClick={sendMessage}>
-              <FaPaperPlane />
+            <button 
+              className="bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
+              onClick={sendMessage} 
+              disabled={loading}
+            >
+              <Send size={18} />
             </button>
           </div>
         </div>
       )}
-
-      {/* Floating doodles with parallax */}
-      <svg className="doodle-bg" width="100%" height="100%">
-        <circle className="doodle1" cx="50" cy="80" r="60" fill="rgba(255,200,150,0.3)" />
-        <circle className="doodle2" cx="300" cy="150" r="100" fill="rgba(150,200,255,0.2)" />
-        <circle className="doodle3" cx="700" cy="50" r="120" fill="rgba(255,150,200,0.15)" />
-      </svg>
     </div>
   );
 }
 
-export default App
+export default App;
