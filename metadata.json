@@ -1,0 +1,5 @@
+{
+  "name": "Shadow Fight Agent",
+  "description": "An AI-powered chat agent that answers user questions about the lore of Shadow Fight. Features Google and guest login, chat history for authenticated users, and a daily message rate limit, all wrapped in a modern, visually appealing interface.",
+  "requestFramePermissions": []
+}
